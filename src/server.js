@@ -31,15 +31,26 @@ const app = express();
 const {
   BACKEND_PORT = 4000,
   SESSION_SECRET,
+  FRONTEND_URL,
   FRONTEND_ORIGIN = "http://localhost:5173",
   NODE_ENV = "development",
 } = process.env;
+
+const frontendOrigin = FRONTEND_URL || FRONTEND_ORIGIN;
 
 if (!SESSION_SECRET) {
   throw new Error("SESSION_SECRET must be set in environment");
 }
 
 app.set("trust proxy", 1);
+
+// CORS first so credentials (cookies/sessions) work for cross-origin frontend.
+app.use(
+  cors({
+    origin: frontendOrigin,
+    credentials: true,
+  }),
+);
 
 app.use(
   helmet({
@@ -48,13 +59,6 @@ app.use(
 );
 
 app.use(cspMiddleware);
-
-app.use(
-  cors({
-    origin: FRONTEND_ORIGIN,
-    credentials: true,
-  }),
-);
 
 app.use(compression());
 app.use(express.json());
