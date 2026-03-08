@@ -84,8 +84,10 @@ router.get(
       req.session.save((err) => {
         if (err) return next(err);
         const front = FRONTEND_ORIGIN.replace(/"/g, '&quot;');
+        const redirectUrl = front + (front.includes('?') ? '&' : '?') + 'login=ok';
+        const safeUrl = redirectUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         res.status(200).set('Content-Type', 'text/html; charset=utf-8').end(
-          `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${front}"><title>Redirecting</title></head><body><p>Redirecting…</p></body></html>`
+          `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${safeUrl}"><title>Redirecting</title></head><body><p>Redirecting…</p></body></html>`
         );
       });
     } catch (err) {
