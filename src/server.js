@@ -15,6 +15,9 @@ import { powMiddleware } from "./security/pow.js";
 import { authRateLimiter, decryptRateLimiter } from "./security/rateLimit.js";
 import authRouter from "./steam/routes.js";
 import cryptoRouter from "./crypto/routes.js";
+import alertsRouter from "./routes/alerts.js";
+import marketRouter from "./routes/market.js";
+import { connectDB } from "./db/index.js";
 
 // Resolve directory for explicit .env loading so we can support
 // a single .env at the project root as well as backend/.env.
@@ -113,12 +116,23 @@ app.use(
   powMiddleware("crypto"),
   cryptoRouter,
 );
+app.use("/api/alerts", authRateLimiter, alertsRouter);
+app.use("/api/market", authRateLimiter, marketRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: "Internal Server Error" });
 });
 
-const server = app.listen(process.env.PORT || 4000, "0.0.0.0", () => {
+const PORT = process.env.PORT || 4000;
+const server = app.listen(PORT, "0.0.0.0", async () => {
   console.log("Server running on port", process.env.PORT);
+  if (process.env.MONGODB_URI) {
+    try {
+      await connectDB();
+      console.log("MongoDB connected");
+    } catch (e) {
+      console.error("MongoDB connection failed:", e.message);
+    }
+  }
 });
