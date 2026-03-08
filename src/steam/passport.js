@@ -8,6 +8,16 @@ export function configurePassport() {
     STEAM_WEB_API_KEY
   } = process.env;
 
+  // Use origin only (no path) so returnURL/realm are never duplicated (e.g. .../return/api/auth/steam/return).
+  const baseOrigin = (() => {
+    try {
+      const u = new URL(APP_BASE_URL);
+      return u.origin;
+    } catch {
+      return APP_BASE_URL.replace(/\/+$/, '').replace(/\/(?:api\/auth\/steam\/return)?\/?$/, '') || APP_BASE_URL;
+    }
+  })();
+
   if (!STEAM_WEB_API_KEY) {
     console.warn('STEAM_WEB_API_KEY is not set. Steam Web API verification will fail.');
   }
@@ -22,8 +32,8 @@ export function configurePassport() {
 
   passport.use(new SteamStrategy(
     {
-      returnURL: `${APP_BASE_URL}/api/auth/steam/return`,
-      realm: `${APP_BASE_URL}/`,
+      returnURL: `${baseOrigin}/api/auth/steam/return`,
+      realm: `${baseOrigin}/`,
       apiKey: STEAM_WEB_API_KEY
     },
     (identifier, profile, done) => {
