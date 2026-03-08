@@ -80,11 +80,12 @@ router.get(
 
       // Send 200 + HTML redirect so the session cookie is set in a normal response.
       // Firefox often rejects cookies set on a 302 to another origin; 200 + client redirect helps.
+      // Meta refresh only (no inline script) so CSP script-src nonce does not block the page.
       req.session.save((err) => {
         if (err) return next(err);
         const front = FRONTEND_ORIGIN.replace(/"/g, '&quot;');
         res.status(200).set('Content-Type', 'text/html; charset=utf-8').end(
-          `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${front}"><title>Redirecting</title></head><body><p>Redirecting…</p><script>location.href=${JSON.stringify(FRONTEND_ORIGIN)};</script></body></html>`
+          `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${front}"><title>Redirecting</title></head><body><p>Redirecting…</p></body></html>`
         );
       });
     } catch (err) {
