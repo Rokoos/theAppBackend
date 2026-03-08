@@ -13,10 +13,11 @@ function generateState() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+// Direct link from frontend: redirect to Steam auth (no JSON so the browser follows the redirect).
 router.get('/steam/start', (req, res) => {
   const state = generateState();
   req.session.steamLoginState = state;
-  res.json({ state, redirectUrl: '/api/auth/steam?state=' + encodeURIComponent(state) });
+  res.redirect('/api/auth/steam?state=' + encodeURIComponent(state));
 });
 
 router.get(

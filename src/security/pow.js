@@ -1,8 +1,9 @@
 export function powMiddleware(area) {
   return (req, res, next) => {
-    const { POW_PROVIDER = 'disabled', NODE_ENV = 'development' } = process.env;
+    const { POW_PROVIDER = 'disabled' } = process.env;
 
-    if (POW_PROVIDER === 'disabled' && NODE_ENV === 'development') {
+    // When disabled, never require a token; abuse protection relies on rate limiting.
+    if (POW_PROVIDER === 'disabled') {
       return next();
     }
 
