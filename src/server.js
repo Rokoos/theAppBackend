@@ -29,14 +29,10 @@ dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 const app = express();
 
 const {
-  BACKEND_PORT = 4000,
   SESSION_SECRET,
   FRONTEND_URL,
-  FRONTEND_ORIGIN = "http://localhost:5173",
   NODE_ENV = "development",
 } = process.env;
-
-const frontendOrigin = FRONTEND_URL || FRONTEND_ORIGIN;
 
 if (!SESSION_SECRET) {
   throw new Error("SESSION_SECRET must be set in environment");
@@ -44,13 +40,14 @@ if (!SESSION_SECRET) {
 
 app.set("trust proxy", 1);
 
-// CORS first so credentials (cookies/sessions) work for cross-origin frontend.
-app.use(
-  cors({
-    origin: frontendOrigin,
-    credentials: true,
-  }),
-);
+// CORS at the very top for Railway; FRONTEND_URL = your Netlify URL (no trailing slash).
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || "http://localhost:5173",
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+};
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(
   helmet({
@@ -86,6 +83,9 @@ configurePassport();
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Railway health check (plain OK).
+app.get("/health", (req, res) => res.status(200).send("OK"));
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
@@ -103,6 +103,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Internal Server Error" });
 });
 
-app.listen(BACKEND_PORT || 4000, "0.0.0.0", () => {
-  console.log(`Backend listening on port ${BACKEND_PORT}`);
+const server = app.listen(process.env.PORT || 4000, "0.0.0.0", () => {
+  console.log("Server running on port", process.env.PORT);
 });
