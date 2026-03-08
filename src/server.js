@@ -12,7 +12,7 @@ import cors from "cors";
 import { configurePassport } from "./steam/passport.js";
 import { cspMiddleware } from "./security/csp.js";
 import { powMiddleware } from "./security/pow.js";
-import { authRateLimiter, decryptRateLimiter } from "./security/rateLimit.js";
+import { authRateLimiter, apiReadRateLimiter, decryptRateLimiter } from "./security/rateLimit.js";
 import authRouter from "./steam/routes.js";
 import cryptoRouter from "./crypto/routes.js";
 import alertsRouter from "./routes/alerts.js";
@@ -116,8 +116,8 @@ app.use(
   powMiddleware("crypto"),
   cryptoRouter,
 );
-app.use("/api/alerts", authRateLimiter, alertsRouter);
-app.use("/api/market", authRateLimiter, marketRouter);
+app.use("/api/alerts", apiReadRateLimiter, alertsRouter);
+app.use("/api/market", apiReadRateLimiter, marketRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

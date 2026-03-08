@@ -7,11 +7,23 @@ function getKey(req) {
   return req.ip || req.headers['x-forwarded-for'] || 'unknown';
 }
 
+const standardMessage = { error: 'Too many requests, please try again later.' };
+
 export const authRateLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 30,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  message: standardMessage,
+});
+
+/** Higher limit for read-heavy routes (market prices, alerts) so normal browsing does not hit 429. */
+export const apiReadRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: standardMessage,
 });
 
 export const decryptRateLimiter = (req, res, next) => {

@@ -7,8 +7,8 @@ const SKINPORT_BASE = 'https://api.skinport.com/v1/items';
 
 const memoryCache = new Map();
 
-function cacheKey(source, gameId) {
-  return `${source}:${gameId}`;
+function cacheKey(source, gameId, currency = '') {
+  return `${source}:${gameId}:${currency}`;
 }
 
 function isCacheValid(entry) {
@@ -19,7 +19,7 @@ function isCacheValid(entry) {
  * Fetch items from SkinPort for a given app_id. Game mapping: 730 (CS2), 252490 (Rust), 570 (Dota 2), 440 (TF2).
  */
 async function fetchSkinPortItems(appId = 730, currency = 'USD') {
-  const key = cacheKey('skinport', appId);
+  const key = cacheKey('skinport', appId, currency);
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
@@ -65,7 +65,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
  */
 export async function getMarketPrices(gameId, options = {}) {
   const { currency = 'USD', forceRefresh = false } = options;
-  const key = cacheKey('skinport', gameId);
+  const key = cacheKey('skinport', gameId, currency);
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
@@ -82,12 +82,13 @@ export async function getMarketPrices(gameId, options = {}) {
       maxPrice: it.max_price,
       meanPrice: it.mean_price,
       medianPrice: it.median_price,
+      currency: it.currency || currency,
     });
   }
   for (const it of dmarket) {
     const name = it.market_hash_name || it.marketHashName;
     if (name && !byName.has(name)) {
-      byName.set(name, { source: 'dmarket', ...it, marketHashName: name });
+      byName.set(name, { source: 'dmarket', ...it, marketHashName: name, currency });
     }
   }
   const result = Array.from(byName.values());
