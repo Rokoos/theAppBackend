@@ -49,21 +49,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-  }),
-);
-
-app.use(cspMiddleware);
-
-app.use(compression());
-app.use(express.json());
-app.use(morgan(NODE_ENV === "development" ? "dev" : "combined"));
-
 const sessionCookieName =
   NODE_ENV === "development" ? "steamapp.sid" : "__Host-steamapp.sid";
 
+// Session as early as possible so passport.session() never sees req.session undefined (e.g. Railway).
 app.use(
   session({
     name: sessionCookieName,
@@ -79,6 +68,32 @@ app.use(
     },
   }),
 );
+
+// Ensure req.session exists and has regenerate/save so passport.session() never throws (e.g. on Railway).
+app.use((req, res, next) => {
+  if (!req.session) {
+    req.session = {};
+  }
+  if (typeof req.session.regenerate !== "function") {
+    req.session.regenerate = (cb) => (cb ? cb() : undefined);
+  }
+  if (typeof req.session.save !== "function") {
+    req.session.save = (cb) => (cb ? cb() : undefined);
+  }
+  next();
+});
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  }),
+);
+
+app.use(cspMiddleware);
+
+app.use(compression());
+app.use(express.json());
+app.use(morgan(NODE_ENV === "development" ? "dev" : "combined"));
 
 configurePassport();
 app.use(passport.initialize());
