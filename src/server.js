@@ -73,7 +73,7 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: NODE_ENV !== "development",
-      sameSite: "strict",
+      sameSite: NODE_ENV === "development" ? "strict" : "none",
       path: "/",
     },
   }),
