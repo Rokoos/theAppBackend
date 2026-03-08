@@ -75,6 +75,7 @@ app.use(
       secure: NODE_ENV !== "development",
       sameSite: NODE_ENV === "development" ? "strict" : "none",
       path: "/",
+      // Firefox: if /api/auth/me fails after login, user may need to add this site to ETP exceptions.
     },
   }),
 );
