@@ -7,7 +7,7 @@ import { saveInventory, loadInventory } from '../db/inventoryStore.js';
 
 const router = express.Router();
 
-const { FRONTEND_ORIGIN = 'http://localhost:5173' } = process.env;
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
 
 function generateState() {
   return crypto.randomBytes(32).toString('hex');
