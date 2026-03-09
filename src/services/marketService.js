@@ -23,19 +23,45 @@ async function fetchSkinPortItems(appId = 730, currency = 'USD') {
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
+  const requestConfig = {
+    params: { app_id: appId, currency, tradable: 1 },
+    timeout: 20000,
+    validateStatus: (status) => status === 200,
+  };
+
   try {
     const { data } = await axios.get(SKINPORT_BASE, {
-      params: { app_id: appId, currency, tradable: 1 },
+      ...requestConfig,
       headers: { 'Accept-Encoding': 'br' },
-      timeout: 20000,
     });
     const items = Array.isArray(data) ? data : [];
-    memoryCache.set(key, { items, fetchedAt: Date.now() });
+    if (items.length > 0) {
+      memoryCache.set(key, { items, fetchedAt: Date.now() });
+    }
     return items;
   } catch (err) {
-    console.warn('SkinPort fetch failed for appId', appId, err.message);
+    const status = err.response?.status;
+    const msg = status ? `status ${status}` : err.message;
+    console.warn('SkinPort fetch failed for appId', appId, msg);
     const stale = memoryCache.get(key);
-    if (stale) return stale.items;
+    if (stale?.items?.length) return stale.items;
+    if (status === 429) {
+      console.warn('SkinPort rate limit (8 req/5 min). Wait or use cached data.');
+      return [];
+    }
+    try {
+      const { data } = await axios.get(SKINPORT_BASE, {
+        ...requestConfig,
+        headers: { 'Accept-Encoding': 'gzip, deflate' },
+      });
+      const items = Array.isArray(data) ? data : [];
+      if (items.length > 0) {
+        memoryCache.set(key, { items, fetchedAt: Date.now() });
+        return items;
+      }
+    } catch (retryErr) {
+      console.warn('SkinPort retry without br failed', retryErr.message);
+    }
     return [];
   }
 }
@@ -92,7 +118,9 @@ export async function getMarketPrices(gameId, options = {}) {
     }
   }
   const result = Array.from(byName.values());
-  memoryCache.set(key, { items: result, fetchedAt: Date.now() });
+  if (result.length > 0) {
+    memoryCache.set(key, { items: result, fetchedAt: Date.now() });
+  }
   return result;
 }
 
