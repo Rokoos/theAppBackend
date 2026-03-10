@@ -23,12 +23,18 @@ router.get("/proxy", async (req, res) => {
     const response = await axios.get(decoded, {
       responseType: "arraybuffer",
       validateStatus: (status) => status >= 200 && status < 400,
+      maxRedirects: 5,
     });
 
-    const contentType = response.headers["content-type"] || "image/png";
-    res.setHeader("Content-Type", contentType);
-    // Allow any frontend origin to use this image in WebGL textures.
+    const contentType = (response.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (!contentType.startsWith("image/")) {
+      console.warn("Image proxy: upstream returned non-image content-type:", response.headers["content-type"]);
+      return res.status(502).json({ error: "Upstream did not return an image" });
+    }
+
+    res.setHeader("Content-Type", response.headers["content-type"] || "image/png");
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=3600");
     res.send(Buffer.from(response.data));
   } catch (err) {
     console.error("Image proxy error", err.message);
