@@ -63,11 +63,11 @@ function signRequest(method, pathWithQuery, body, publicKeyHex, privateKeyHex) {
 }
 
 const DMARKET_PAGE_SIZE = 100;
-const DMARKET_MAX_PAGES = 15; // cap to avoid too many requests (~1500 items max)
+const DMARKET_MAX_PAGES = 25; // offset 0,100,...,2400 => up to 2500 raw items
 
 /**
  * Fetch one page of market items (signed request).
- * @returns {{ objects: array, cursor?: string }}
+ * @returns {{ objects: array }}
  */
 async function fetchDMarketMarketItemsPage(
   pathWithQuery,
@@ -84,14 +84,14 @@ async function fetchDMarketMarketItemsPage(
   });
   return {
     objects: Array.isArray(data?.objects) ? data.objects : [],
-    cursor: data?.cursor ?? null,
   };
 }
 
 /**
- * Fetch market items from DMarket for a game, following cursor until no more pages or cap.
- * GET /exchange/v1/market/items?gameId=...&limit=100&currency=...&cursor=...
- * Response: { objects: [{ title, price: { USD }, ... }], cursor }
+ * Fetch market items from DMarket for a game using offset pagination.
+ * Multiple pages give many more unique skins (each page can repeat same titles).
+ * GET /exchange/v1/market/items?gameId=...&limit=100&currency=...&offset=...
+ * Response: { objects: [{ title, price: { USD }, ... }] }
  * Prices are in cents (coins).
  */
 export async function fetchDMarketMarketItems(
@@ -120,34 +120,39 @@ export async function fetchDMarketMarketItems(
 
   const path = "/exchange/v1/market/items";
   const all = [];
-  let cursor = null;
-  let page = 0;
 
   try {
-    do {
+    for (let page = 0; page < DMARKET_MAX_PAGES; page++) {
+      const offset = page * DMARKET_PAGE_SIZE;
       const params = new URLSearchParams({
         gameId,
         limit: String(DMARKET_PAGE_SIZE),
+        offset: String(offset),
         currency: apiCurrency,
         orderBy: "title",
         orderDir: "asc",
       });
-      if (cursor) params.set("cursor", cursor);
       const pathWithQuery = `${path}?${params.toString()}`;
       const url = `${DMARKET_BASE}${pathWithQuery}`;
 
-      const { objects, cursor: nextCursor } =
-        await fetchDMarketMarketItemsPage(
+      let objects;
+      try {
+        const result = await fetchDMarketMarketItemsPage(
           pathWithQuery,
           url,
           publicKey,
           privateKey,
         );
+        objects = result.objects;
+      } catch (pageErr) {
+        if (offset > 0) {
+          break;
+        }
+        throw pageErr;
+      }
       all.push(...objects);
-      cursor =
-        nextCursor && String(nextCursor).trim() ? String(nextCursor).trim() : null;
-      page += 1;
-    } while (cursor && page < DMARKET_MAX_PAGES);
+      if (objects.length < DMARKET_PAGE_SIZE) break;
+    }
     return all;
   } catch (err) {
     const status = err.response?.status;
