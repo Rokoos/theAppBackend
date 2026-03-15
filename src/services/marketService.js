@@ -140,12 +140,13 @@ export async function getMarketPrices(gameId, options = {}) {
   }
   const items = await fetchSkinPortItems(gameId, currency);
   const dmarket = await fetchDMarketItems(gameId, currency);
-  const byName = new Map();
+  const result = [];
   for (const it of items) {
-    byName.set(it.market_hash_name, {
+    result.push({
       source: 'skinport',
       ...it,
       marketHashName: it.market_hash_name,
+      market_hash_name: it.market_hash_name,
       suggestedPrice: it.suggested_price,
       minPrice: it.min_price,
       maxPrice: it.max_price,
@@ -156,11 +157,15 @@ export async function getMarketPrices(gameId, options = {}) {
   }
   for (const it of dmarket) {
     const name = it.market_hash_name || it.marketHashName;
-    if (name && !byName.has(name)) {
-      byName.set(name, { source: 'dmarket', ...it, marketHashName: name, currency });
-    }
+    if (!name) continue;
+    result.push({
+      source: 'dmarket',
+      ...it,
+      marketHashName: name,
+      market_hash_name: name,
+      currency: it.currency || currency,
+    });
   }
-  const result = Array.from(byName.values());
   if (result.length > 0) {
     memoryCache.set(key, { items: result, fetchedAt: Date.now() });
   }
