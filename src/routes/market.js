@@ -16,7 +16,7 @@ function requireAuth(req, res, next) {
 
 /**
  * GET /api/market/prices?gameId=730&currency=USD&limit=50&offset=0
- * Returns items from SkinPort (and DMarket when implemented) for the given game.
+ * Returns items from SkinPort and DMarket (when API keys are set) for the given game.
  * limit: default 50; offset: default 0. Response: { items, total }.
  * Cached 1 hour.
  */

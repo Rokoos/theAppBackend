@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { fetchDMarketMarketItems } from './dmarketClient.js';
 
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -13,6 +14,14 @@ function cacheKey(source, gameId, currency = '') {
 
 function isCacheValid(entry) {
   return entry && Date.now() - entry.fetchedAt < CACHE_MS;
+}
+
+/** Parse DMarket price (cents string) to number in dollars. */
+function dmarketCentsToDollars(centsStr) {
+  if (centsStr == null) return null;
+  const n = parseFloat(String(centsStr), 10);
+  if (Number.isNaN(n)) return null;
+  return n / 100;
 }
 
 /**
@@ -67,17 +76,48 @@ async function fetchSkinPortItems(appId = 730, currency = 'USD') {
 }
 
 /**
- * DMarket: stub for now (public API may require key or different endpoint).
+ * Fetch DMarket market items and aggregate by title to one row per item (min/max/suggested in USD).
  */
 async function fetchDMarketItems(appId, currency = 'USD') {
-  const key = cacheKey('dmarket', appId);
+  const key = cacheKey('dmarket', appId, currency);
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
   try {
-    // Placeholder: DMarket public API varies; return empty and cache to avoid rate limits.
-    const items = [];
-    memoryCache.set(key, { items, fetchedAt: Date.now() });
+    const raw = await fetchDMarketMarketItems(appId, currency, 500);
+    const byTitle = new Map();
+    const priceKey = (currency && currency.toUpperCase()) || 'USD';
+    for (const obj of raw) {
+      const title = obj?.title ?? obj?.extra?.name;
+      if (!title || typeof title !== 'string') continue;
+      const priceVal = obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
+      const suggestedVal =
+        obj?.suggestedPrice?.[priceKey] ?? obj?.suggestedPrice?.USD ?? obj?.suggestedPrice?.Usd;
+      const priceUsd = dmarketCentsToDollars(priceVal);
+      const suggestedUsd = dmarketCentsToDollars(suggestedVal);
+      const amount = priceUsd ?? suggestedUsd;
+      if (amount == null) continue;
+      const existing = byTitle.get(title);
+      if (!existing) {
+        byTitle.set(title, {
+          market_hash_name: title,
+          marketHashName: title,
+          source: 'dmarket',
+          currency: currency.toUpperCase(),
+          minPrice: amount,
+          maxPrice: amount,
+          suggestedPrice: amount,
+        });
+      } else {
+        existing.minPrice = Math.min(existing.minPrice, amount);
+        existing.maxPrice = Math.max(existing.maxPrice, amount);
+        existing.suggestedPrice = existing.minPrice;
+      }
+    }
+    const items = Array.from(byTitle.values());
+    if (items.length > 0) {
+      memoryCache.set(key, { items, fetchedAt: Date.now() });
+    }
     return items;
   } catch (err) {
     console.warn('DMarket fetch failed for appId', appId, err.message);
