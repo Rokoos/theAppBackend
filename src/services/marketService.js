@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { fetchDMarketMarketItems } from './dmarketClient.js';
 
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -84,6 +83,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     return memoryCache.get(key).items;
   }
   try {
+    const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
     const raw = await fetchDMarketMarketItems(appId, currency, 500);
     const byTitle = new Map();
     const priceKey = (currency && currency.toUpperCase()) || 'USD';
