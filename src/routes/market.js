@@ -14,16 +14,21 @@ function requireAuth(req, res, next) {
   next();
 }
 
+const SOURCE_VALUES = ['all', 'skinport', 'dmarket'];
+
 /**
- * GET /api/market/prices?gameId=730&currency=USD&limit=50&offset=0
+ * GET /api/market/prices?gameId=730&currency=USD&limit=50&offset=0&source=all
  * Returns items from SkinPort and DMarket (when API keys are set) for the given game.
- * limit: default 50; offset: default 0. Response: { items, total }.
+ * source: all | skinport | dmarket (default all). limit/offset for pagination. Response: { items, total }.
  * Cached 1 hour.
  */
 router.get('/prices', requireAuth, async (req, res, next) => {
   try {
     const gameId = parseInt(req.query.gameId, 10);
     const currency = (req.query.currency || 'USD').toUpperCase();
+    const source = SOURCE_VALUES.includes(String(req.query.source).toLowerCase())
+      ? String(req.query.source).toLowerCase()
+      : 'all';
     const rawLimit = parseInt(req.query.limit, 10);
     const rawOffset = parseInt(req.query.offset, 10);
     const limit = Number.isInteger(rawLimit) && rawLimit > 0
@@ -37,11 +42,14 @@ router.get('/prices', requireAuth, async (req, res, next) => {
     }
     const all = await getMarketPrices(gameId, { currency });
     const list = Array.isArray(all) ? all : [];
-    const total = list.length;
+    const filtered =
+      source === 'all'
+        ? list
+        : list.filter((i) => (i.source || 'skinport') === source);
+    const total = filtered.length;
     const start = Math.min(offset, total);
     const end = Math.min(start + limit, total);
-    const page = list.slice(start, end);
-    const items = page.slice(0, limit);
+    const items = filtered.slice(start, end);
     res.json({ items, total });
   } catch (err) {
     next(err);
