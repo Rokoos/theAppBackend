@@ -84,7 +84,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
   }
   try {
     const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
-    const raw = await fetchDMarketMarketItems(appId, currency, 500);
+    const raw = await fetchDMarketMarketItems(appId, currency, 100);
     const byTitle = new Map();
     const priceKey = (currency && currency.toUpperCase()) || 'USD';
     for (const obj of raw) {
