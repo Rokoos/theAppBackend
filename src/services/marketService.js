@@ -75,18 +75,21 @@ async function fetchSkinPortItems(appId = 730, currency = 'USD') {
 }
 
 /**
- * Fetch DMarket market items and aggregate by title to one row per item (min/max/suggested in USD).
+ * Fetch DMarket market items and aggregate by title to one row per item (min/max/suggested).
+ * DMarket API only accepts USD or DMC; we request in that currency and label items accordingly.
  */
 async function fetchDMarketItems(appId, currency = 'USD') {
-  const key = cacheKey('dmarket', appId, currency);
+  const dmarketCurrency =
+    (currency && String(currency).toUpperCase() === 'DMC') ? 'DMC' : 'USD';
+  const key = cacheKey('dmarket', appId, dmarketCurrency);
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
   try {
     const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
-    const raw = await fetchDMarketMarketItems(appId, currency, 100);
+    const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 100);
     const byTitle = new Map();
-    const priceKey = (currency && currency.toUpperCase()) || 'USD';
+    const priceKey = dmarketCurrency;
     for (const obj of raw) {
       const title = obj?.title ?? obj?.extra?.name;
       if (!title || typeof title !== 'string') continue;
@@ -103,7 +106,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
           market_hash_name: title,
           marketHashName: title,
           source: 'dmarket',
-          currency: currency.toUpperCase(),
+          currency: dmarketCurrency,
           minPrice: amount,
           maxPrice: amount,
           suggestedPrice: amount,

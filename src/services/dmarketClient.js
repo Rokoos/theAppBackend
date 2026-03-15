@@ -89,11 +89,15 @@ export async function fetchDMarketMarketItems(
     return [];
   }
 
+  // DMarket only accepts USD or DMC; default to USD for any other request
+  const apiCurrency =
+    (currency && String(currency).toUpperCase() === "DMC") ? "DMC" : "USD";
+
   const path = "/exchange/v1/market/items";
   const params = new URLSearchParams({
     gameId,
     limit: String(limit),
-    currency,
+    currency: apiCurrency,
     orderBy: "title",
     orderDir: "asc",
   });
