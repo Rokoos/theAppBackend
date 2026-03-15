@@ -44,9 +44,18 @@ if (!SESSION_SECRET) {
 
 app.set("trust proxy", 1);
 
-// CORS at the very top for Railway; FRONTEND_URL = your Netlify URL (no trailing slash).
+// CORS: allow both production frontend and local dev (localhost:5173) so login works from either.
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_ORIGIN,
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+].filter(Boolean);
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || "http://localhost:5173",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, origin || allowedOrigins[0]);
+    return callback(null, false);
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 };
