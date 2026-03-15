@@ -63,11 +63,11 @@ function signRequest(method, pathWithQuery, body, publicKeyHex, privateKeyHex) {
 }
 
 const DMARKET_PAGE_SIZE = 100;
-const DMARKET_MAX_PAGES = 50; // cursor pages => up to 5000 raw items
+const DMARKET_MAX_CURSOR_PAGES = 100;
+const DMARKET_MAX_OFFSET_PAGES = 100;
 
 /**
- * Build query string for market items in a fixed order (for consistent signing).
- * DMarket uses cursor-based pagination; offset is deprecated.
+ * Build query string for market items (cursor-based). Fixed param order for signing.
  */
 function buildMarketItemsQuery(gameId, apiCurrency, cursor) {
   const params = new URLSearchParams();
@@ -75,6 +75,20 @@ function buildMarketItemsQuery(gameId, apiCurrency, cursor) {
   if (cursor) params.set("cursor", cursor);
   params.set("gameId", gameId);
   params.set("limit", String(DMARKET_PAGE_SIZE));
+  params.set("orderBy", "title");
+  params.set("orderDir", "asc");
+  return params.toString();
+}
+
+/**
+ * Build query string for market items (offset-based). Same param order for signing.
+ */
+function buildMarketItemsQueryWithOffset(gameId, apiCurrency, offset) {
+  const params = new URLSearchParams();
+  params.set("currency", apiCurrency);
+  params.set("gameId", gameId);
+  params.set("limit", String(DMARKET_PAGE_SIZE));
+  params.set("offset", String(offset));
   params.set("orderBy", "title");
   params.set("orderDir", "asc");
   return params.toString();
@@ -94,7 +108,7 @@ async function fetchDMarketMarketItemsPage(
   headers["Accept"] = "application/json";
   const { data } = await axios.get(url, {
     headers,
-    timeout: 15000,
+    timeout: 20000,
     validateStatus: (s) => s === 200,
   });
   const objects = Array.isArray(data?.objects) ? data.objects : [];
@@ -108,11 +122,10 @@ async function fetchDMarketMarketItemsPage(
 }
 
 /**
- * Fetch market items from DMarket for a game using cursor-based pagination.
- * GET /exchange/v1/market/items?currency=...&gameId=...&limit=100&orderBy=title&orderDir=asc
- * Next page: add &cursor=<value> from previous response.
- * Response: { objects: [...], cursor?: string }
- * Prices are in cents (coins).
+ * Fetch market items from DMarket for a game.
+ * Uses cursor pagination first; if the API returns no cursor or stops early,
+ * falls back to offset pagination to fetch more pages (up to thousands of items).
+ * Response: { objects: [...], cursor?: string }. Prices in cents.
  */
 export async function fetchDMarketMarketItems(
   appId,
@@ -143,7 +156,8 @@ export async function fetchDMarketMarketItems(
   let cursor = null;
 
   try {
-    for (let page = 0; page < DMARKET_MAX_PAGES; page++) {
+    // 1) Cursor-based pagination: keep going while we have a cursor (don't stop on short page)
+    for (let page = 0; page < DMARKET_MAX_CURSOR_PAGES; page++) {
       const query = buildMarketItemsQuery(gameId, apiCurrency, cursor);
       const pathWithQuery = `${path}?${query}`;
       const url = `${DMARKET_BASE}${pathWithQuery}`;
@@ -156,9 +170,37 @@ export async function fetchDMarketMarketItems(
           privateKey,
         );
       all.push(...objects);
-      if (!nextCursor || objects.length < DMARKET_PAGE_SIZE) break;
+      if (!nextCursor) break;
       cursor = nextCursor;
     }
+
+    // 2) If we got very few items, API may not be returning cursor; try offset-based pages
+    if (all.length < 500) {
+      for (let offsetPage = 1; offsetPage < DMARKET_MAX_OFFSET_PAGES; offsetPage++) {
+        const offset = offsetPage * DMARKET_PAGE_SIZE;
+        const query = buildMarketItemsQueryWithOffset(
+          gameId,
+          apiCurrency,
+          offset,
+        );
+        const pathWithQuery = `${path}?${query}`;
+        const url = `${DMARKET_BASE}${pathWithQuery}`;
+        try {
+          const { objects } = await fetchDMarketMarketItemsPage(
+            pathWithQuery,
+            url,
+            publicKey,
+            privateKey,
+          );
+          if (objects.length === 0) break;
+          all.push(...objects);
+          if (objects.length < DMARKET_PAGE_SIZE) break;
+        } catch {
+          break;
+        }
+      }
+    }
+
     return all;
   } catch (err) {
     const status = err.response?.status;
