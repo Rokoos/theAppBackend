@@ -63,11 +63,26 @@ function signRequest(method, pathWithQuery, body, publicKeyHex, privateKeyHex) {
 }
 
 const DMARKET_PAGE_SIZE = 100;
-const DMARKET_MAX_PAGES = 25; // offset 0,100,...,2400 => up to 2500 raw items
+const DMARKET_MAX_PAGES = 50; // cursor pages => up to 5000 raw items
+
+/**
+ * Build query string for market items in a fixed order (for consistent signing).
+ * DMarket uses cursor-based pagination; offset is deprecated.
+ */
+function buildMarketItemsQuery(gameId, apiCurrency, cursor) {
+  const params = new URLSearchParams();
+  params.set("currency", apiCurrency);
+  if (cursor) params.set("cursor", cursor);
+  params.set("gameId", gameId);
+  params.set("limit", String(DMARKET_PAGE_SIZE));
+  params.set("orderBy", "title");
+  params.set("orderDir", "asc");
+  return params.toString();
+}
 
 /**
  * Fetch one page of market items (signed request).
- * @returns {{ objects: array }}
+ * @returns {{ objects: array, cursor?: string }}
  */
 async function fetchDMarketMarketItemsPage(
   pathWithQuery,
@@ -82,16 +97,21 @@ async function fetchDMarketMarketItemsPage(
     timeout: 15000,
     validateStatus: (s) => s === 200,
   });
-  return {
-    objects: Array.isArray(data?.objects) ? data.objects : [],
-  };
+  const objects = Array.isArray(data?.objects) ? data.objects : [];
+  const nextCursor =
+    data?.cursor ?? data?.nextCursor ?? data?.Cursor ?? null;
+  const cursorStr =
+    nextCursor != null && String(nextCursor).trim()
+      ? String(nextCursor).trim()
+      : null;
+  return { objects, cursor: cursorStr };
 }
 
 /**
- * Fetch market items from DMarket for a game using offset pagination.
- * Multiple pages give many more unique skins (each page can repeat same titles).
- * GET /exchange/v1/market/items?gameId=...&limit=100&currency=...&offset=...
- * Response: { objects: [{ title, price: { USD }, ... }] }
+ * Fetch market items from DMarket for a game using cursor-based pagination.
+ * GET /exchange/v1/market/items?currency=...&gameId=...&limit=100&orderBy=title&orderDir=asc
+ * Next page: add &cursor=<value> from previous response.
+ * Response: { objects: [...], cursor?: string }
  * Prices are in cents (coins).
  */
 export async function fetchDMarketMarketItems(
@@ -120,38 +140,24 @@ export async function fetchDMarketMarketItems(
 
   const path = "/exchange/v1/market/items";
   const all = [];
+  let cursor = null;
 
   try {
     for (let page = 0; page < DMARKET_MAX_PAGES; page++) {
-      const offset = page * DMARKET_PAGE_SIZE;
-      const params = new URLSearchParams({
-        gameId,
-        limit: String(DMARKET_PAGE_SIZE),
-        offset: String(offset),
-        currency: apiCurrency,
-        orderBy: "title",
-        orderDir: "asc",
-      });
-      const pathWithQuery = `${path}?${params.toString()}`;
+      const query = buildMarketItemsQuery(gameId, apiCurrency, cursor);
+      const pathWithQuery = `${path}?${query}`;
       const url = `${DMARKET_BASE}${pathWithQuery}`;
 
-      let objects;
-      try {
-        const result = await fetchDMarketMarketItemsPage(
+      const { objects, cursor: nextCursor } =
+        await fetchDMarketMarketItemsPage(
           pathWithQuery,
           url,
           publicKey,
           privateKey,
         );
-        objects = result.objects;
-      } catch (pageErr) {
-        if (offset > 0) {
-          break;
-        }
-        throw pageErr;
-      }
       all.push(...objects);
-      if (objects.length < DMARKET_PAGE_SIZE) break;
+      if (!nextCursor || objects.length < DMARKET_PAGE_SIZE) break;
+      cursor = nextCursor;
     }
     return all;
   } catch (err) {
