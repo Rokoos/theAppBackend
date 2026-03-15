@@ -38,21 +38,27 @@ function buildSignString(method, pathWithQuery, body, timestamp) {
 function signRequest(method, pathWithQuery, body, publicKeyHex, privateKeyHex) {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signString = buildSignString(method, pathWithQuery, body, timestamp);
-  const secretKeyBytes = Buffer.from(privateKeyHex, "hex");
-  if (secretKeyBytes.length !== 64) {
+  const keyBytes = Buffer.from(privateKeyHex, "hex");
+  let secretKey;
+  if (keyBytes.length === 32) {
+    secretKey = nacl.sign.keyPair.fromSeed(new Uint8Array(keyBytes)).secretKey;
+  } else if (keyBytes.length === 64) {
+    secretKey = new Uint8Array(keyBytes);
+  } else {
     throw new Error(
-      `DMarket PRIVATE_API_KEY must be 64 bytes (128 hex chars), got ${secretKeyBytes.length}`,
+      `DMarket PRIVATE_API_KEY must be 32 bytes (64 hex) or 64 bytes (128 hex), got ${keyBytes.length}`,
     );
   }
   const signature = nacl.sign.detached(
     Buffer.from(signString, "utf8"),
-    new Uint8Array(secretKeyBytes),
+    secretKey,
   );
   const signatureHex = Buffer.from(signature).toString("hex");
+  // DMarket requires this exact prefix for X-Request-Sign (see docs / @cs2/dmarket)
   return {
     "X-Api-Key": publicKeyHex.toLowerCase(),
     "X-Sign-Date": timestamp,
-    "X-Request-Sign": signatureHex,
+    "X-Request-Sign": `dmar ed25519 ${signatureHex}`,
   };
 }
 
@@ -67,11 +73,13 @@ export async function fetchDMarketMarketItems(
   currency = "USD",
   limit = 100,
 ) {
-  const publicKey = process.env.DM_PUBLIC_API_KEY;
-  const privateKey = process.env.DM_PRIVATE_API_KEY;
+  const publicKey =
+    process.env.PUBLIC_API_KEY ?? process.env.DM_PUBLIC_API_KEY;
+  const privateKey =
+    process.env.PRIVATE_API_KEY ?? process.env.DM_PRIVATE_API_KEY;
   if (!publicKey || !privateKey) {
     console.warn(
-      "DMarket: PUBLIC_API_KEY or PRIVATE_API_KEY not set, skipping.",
+      "DMarket: PUBLIC_API_KEY/PRIVATE_API_KEY (or DM_* variants) not set, skipping.",
     );
     return [];
   }
@@ -92,7 +100,6 @@ export async function fetchDMarketMarketItems(
   const pathWithQuery = `${path}?${params.toString()}`;
   const url = `${DMARKET_BASE}${pathWithQuery}`;
 
-  // DMarket sign string uses path+query (no leading slash in some docs; try with it)
   const headers = signRequest("GET", pathWithQuery, "", publicKey, privateKey);
   headers["Accept"] = "application/json";
 
@@ -106,10 +113,12 @@ export async function fetchDMarketMarketItems(
     return Array.isArray(objects) ? objects : [];
   } catch (err) {
     const status = err.response?.status;
+    const body = err.response?.data;
     console.warn(
       "DMarket fetch failed for appId",
       appId,
       status ?? err.message,
+      body != null ? JSON.stringify(body) : "",
     );
     return [];
   }
