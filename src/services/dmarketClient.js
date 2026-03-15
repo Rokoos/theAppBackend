@@ -62,10 +62,36 @@ function signRequest(method, pathWithQuery, body, publicKeyHex, privateKeyHex) {
   };
 }
 
+const DMARKET_PAGE_SIZE = 100;
+const DMARKET_MAX_PAGES = 15; // cap to avoid too many requests (~1500 items max)
+
 /**
- * Fetch market items from DMarket for a game.
- * GET /exchange/v1/market/items?gameId=...&limit=...&currency=...
- * Response: { objects: [{ title, price: { USD }, suggestedPrice: { USD }, ... }], cursor }
+ * Fetch one page of market items (signed request).
+ * @returns {{ objects: array, cursor?: string }}
+ */
+async function fetchDMarketMarketItemsPage(
+  pathWithQuery,
+  url,
+  publicKey,
+  privateKey,
+) {
+  const headers = signRequest("GET", pathWithQuery, "", publicKey, privateKey);
+  headers["Accept"] = "application/json";
+  const { data } = await axios.get(url, {
+    headers,
+    timeout: 15000,
+    validateStatus: (s) => s === 200,
+  });
+  return {
+    objects: Array.isArray(data?.objects) ? data.objects : [],
+    cursor: data?.cursor ?? null,
+  };
+}
+
+/**
+ * Fetch market items from DMarket for a game, following cursor until no more pages or cap.
+ * GET /exchange/v1/market/items?gameId=...&limit=100&currency=...&cursor=...
+ * Response: { objects: [{ title, price: { USD }, ... }], cursor }
  * Prices are in cents (coins).
  */
 export async function fetchDMarketMarketItems(
@@ -89,32 +115,40 @@ export async function fetchDMarketMarketItems(
     return [];
   }
 
-  // DMarket only accepts USD or DMC; default to USD for any other request
   const apiCurrency =
     (currency && String(currency).toUpperCase() === "DMC") ? "DMC" : "USD";
 
   const path = "/exchange/v1/market/items";
-  const params = new URLSearchParams({
-    gameId,
-    limit: String(limit),
-    currency: apiCurrency,
-    orderBy: "title",
-    orderDir: "asc",
-  });
-  const pathWithQuery = `${path}?${params.toString()}`;
-  const url = `${DMARKET_BASE}${pathWithQuery}`;
-
-  const headers = signRequest("GET", pathWithQuery, "", publicKey, privateKey);
-  headers["Accept"] = "application/json";
+  const all = [];
+  let cursor = null;
+  let page = 0;
 
   try {
-    const { data } = await axios.get(url, {
-      headers,
-      timeout: 15000,
-      validateStatus: (s) => s === 200,
-    });
-    const objects = data?.objects ?? [];
-    return Array.isArray(objects) ? objects : [];
+    do {
+      const params = new URLSearchParams({
+        gameId,
+        limit: String(DMARKET_PAGE_SIZE),
+        currency: apiCurrency,
+        orderBy: "title",
+        orderDir: "asc",
+      });
+      if (cursor) params.set("cursor", cursor);
+      const pathWithQuery = `${path}?${params.toString()}`;
+      const url = `${DMARKET_BASE}${pathWithQuery}`;
+
+      const { objects, cursor: nextCursor } =
+        await fetchDMarketMarketItemsPage(
+          pathWithQuery,
+          url,
+          publicKey,
+          privateKey,
+        );
+      all.push(...objects);
+      cursor =
+        nextCursor && String(nextCursor).trim() ? String(nextCursor).trim() : null;
+      page += 1;
+    } while (cursor && page < DMARKET_MAX_PAGES);
+    return all;
   } catch (err) {
     const status = err.response?.status;
     const body = err.response?.data;
