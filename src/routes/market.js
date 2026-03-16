@@ -1,5 +1,5 @@
 import express from 'express';
-import { getMarketPrices } from '../services/marketService.js';
+import { getMarketPrices, getSkinportHistory } from '../services/marketService.js';
 
 const router = express.Router();
 
@@ -51,6 +51,29 @@ router.get('/prices', requireAuth, async (req, res, next) => {
     const end = Math.min(start + limit, total);
     const items = filtered.slice(start, end);
     res.json({ items, total });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/market/history?gameId=730&marketHashName=...&days=30
+ * Returns SkinPort historical median prices for a single item.
+ * If the game is not supported by SkinPort, returns { points: [], warning: 'unsupported-game' }.
+ */
+router.get('/history', requireAuth, async (req, res, next) => {
+  try {
+    const gameId = parseInt(req.query.gameId, 10);
+    const name = String(req.query.marketHashName || '').trim();
+    const days = parseInt(req.query.days, 10);
+    if (!Number.isInteger(gameId) || !ALLOWED_GAME_IDS.includes(gameId)) {
+      return res.status(400).json({ error: 'Invalid or missing gameId.' });
+    }
+    if (!name) {
+      return res.status(400).json({ error: 'marketHashName is required.' });
+    }
+    const { points, warning } = await getSkinportHistory(gameId, name, Number.isInteger(days) && days > 0 ? days : 30);
+    res.json({ points, warning });
   } catch (err) {
     next(err);
   }

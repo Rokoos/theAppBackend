@@ -4,6 +4,7 @@ const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
 const SKINPORT_APP_IDS = [730, 252490, 570, 440];
 const SKINPORT_BASE = 'https://api.skinport.com/v1/items';
+const SKINPORT_HISTORY_BASE = 'https://api.skinport.com/v1/sales/history';
 
 const memoryCache = new Map();
 
@@ -200,4 +201,46 @@ export async function getPriceForItem(gameId, marketHashName, currency = 'USD') 
         meanPrice: found.meanPrice ?? found.mean_price,
       }
     : null;
+}
+
+/**
+ * Fetch historical sales for a specific item from SkinPort.
+ * Uses SkinPort /v1/sales/history. Returns an array of points:
+ * [{ time: Date ISO string, median: number }, ...].
+ */
+export async function getSkinportHistory(gameId, marketHashName, days = 30) {
+  if (!SKINPORT_APP_IDS.includes(gameId)) {
+    // SkinPort does not support this game; let caller show "no data".
+    return { points: [], warning: 'unsupported-game' };
+  }
+  const app_id = gameId;
+  const historyWindow = days || 30;
+  try {
+    const { data } = await axios.get(SKINPORT_HISTORY_BASE, {
+      params: {
+        app_id,
+        market_hash_name: marketHashName,
+        days: historyWindow,
+      },
+      timeout: 5000,
+      validateStatus: (status) => status === 200,
+    });
+    const raw = Array.isArray(data) ? data : [];
+    const points = raw
+      .map((row) => {
+        const t = row?.time || row?.timestamp;
+        const m = row?.median_price ?? row?.median;
+        if (!t || m == null) return null;
+        const ts = typeof t === 'number' ? t * 1000 : Date.parse(String(t));
+        if (Number.isNaN(ts)) return null;
+        const price = Number(m);
+        if (!Number.isFinite(price)) return null;
+        return { time: new Date(ts).toISOString(), median: price };
+      })
+      .filter(Boolean);
+    return { points, warning: points.length ? null : 'no-points' };
+  } catch (err) {
+    console.warn('SkinPort history fetch failed for', app_id, marketHashName, err.message);
+    return { points: [], warning: 'error' };
+  }
 }
