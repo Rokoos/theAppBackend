@@ -117,9 +117,26 @@ async function fetchDMarketItems(appId, currency = 'USD') {
   }
 }
 
+// Helper: run a promise with a hard timeout and return [] on failure/timeout.
+function withTimeout(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve([]), ms);
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve([]);
+      });
+  });
+}
+
 /**
  * Get latest market prices for a game, from cache or external APIs.
- * Prefer in-memory cache (1h), then DB MarketPrice cache, then fetch.
+ * Prefer in-memory cache (1h), then DB MarketPrice cache, then fast fetch.
+ * We cap external wait time per source so the user never waits too long.
  */
 export async function getMarketPrices(gameId, options = {}) {
   const { currency = 'USD', forceRefresh = false } = options;
@@ -127,11 +144,12 @@ export async function getMarketPrices(gameId, options = {}) {
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
-  // Fetch SkinPort and DMarket in parallel so total wait time is bounded by
-  // the slower of the two, not their sum.
+  // Fetch SkinPort and DMarket in parallel with a strict timeout per source
+  // so we return whatever data is available quickly instead of waiting for
+  // a slow provider.
   const [items, dmarket] = await Promise.all([
-    fetchSkinPortItems(gameId, currency),
-    fetchDMarketItems(gameId, currency),
+    withTimeout(fetchSkinPortItems(gameId, currency), 2500),
+    withTimeout(fetchDMarketItems(gameId, currency), 2500),
   ]);
   const result = [];
   for (const it of items) {
