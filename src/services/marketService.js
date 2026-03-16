@@ -33,7 +33,8 @@ async function fetchSkinPortItems(appId = 730, currency = 'USD') {
   }
   const requestConfig = {
     params: { app_id: appId, currency, tradable: 1 },
-    timeout: 20000,
+    // Lower timeout so the UI doesn't hang too long on slow/limited SkinPort.
+    timeout: 7000,
     validateStatus: (status) => status === 200,
   };
 
@@ -54,22 +55,10 @@ async function fetchSkinPortItems(appId = 730, currency = 'USD') {
     const stale = memoryCache.get(key);
     if (stale?.items?.length) return stale.items;
     if (status === 429) {
-      console.warn('SkinPort rate limit (8 req/5 min). Wait or use cached data.');
-      return [];
+      console.warn('SkinPort rate limit (8 req/5 min). Using empty SkinPort data.');
     }
-    try {
-      const { data } = await axios.get(SKINPORT_BASE, {
-        ...requestConfig,
-        headers: { 'Accept-Encoding': 'gzip, deflate' },
-      });
-      const items = Array.isArray(data) ? data : [];
-      if (items.length > 0) {
-        memoryCache.set(key, { items, fetchedAt: Date.now() });
-        return items;
-      }
-    } catch (retryErr) {
-      console.warn('SkinPort retry without br failed', retryErr.message);
-    }
+    // Fail fast: no second retry with different encoding. Caller can still
+    // combine this with DMarket data and avoid long hangs.
     return [];
   }
 }
@@ -138,8 +127,12 @@ export async function getMarketPrices(gameId, options = {}) {
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
-  const items = await fetchSkinPortItems(gameId, currency);
-  const dmarket = await fetchDMarketItems(gameId, currency);
+  // Fetch SkinPort and DMarket in parallel so total wait time is bounded by
+  // the slower of the two, not their sum.
+  const [items, dmarket] = await Promise.all([
+    fetchSkinPortItems(gameId, currency),
+    fetchDMarketItems(gameId, currency),
+  ]);
   const result = [];
   for (const it of items) {
     result.push({
