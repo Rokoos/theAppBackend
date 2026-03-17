@@ -145,12 +145,11 @@ export async function getMarketPrices(gameId, options = {}) {
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
-  // Fetch SkinPort and DMarket in parallel with a strict timeout per source
-  // so we return whatever data is available quickly instead of waiting for
-  // a slow provider.
+  // Fetch SkinPort and DMarket in parallel. We cap SkinPort more aggressively,
+  // but give DMarket a bit more time since it can page through more data.
   const [items, dmarket] = await Promise.all([
     withTimeout(fetchSkinPortItems(gameId, currency), 2500),
-    withTimeout(fetchDMarketItems(gameId, currency), 2500),
+    withTimeout(fetchDMarketItems(gameId, currency), 6000),
   ]);
   const result = [];
   for (const it of items) {
