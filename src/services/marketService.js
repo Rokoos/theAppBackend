@@ -77,9 +77,10 @@ async function fetchDMarketItems(appId, currency = 'USD') {
   }
   try {
     const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
-    const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 100);
-    const byTitle = new Map();
+    // Fetch a larger slice so the user can browse more skins.
+    const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 400);
     const priceKey = dmarketCurrency;
+    const items = [];
     for (const obj of raw) {
       const title = obj?.title ?? obj?.extra?.name;
       if (!title || typeof title !== 'string') continue;
@@ -88,26 +89,17 @@ async function fetchDMarketItems(appId, currency = 'USD') {
         obj?.suggestedPrice?.[priceKey] ?? obj?.suggestedPrice?.USD ?? obj?.suggestedPrice?.Usd;
       const priceUsd = dmarketCentsToDollars(priceVal);
       const suggestedUsd = dmarketCentsToDollars(suggestedVal);
-      const amount = priceUsd ?? suggestedUsd;
-      if (amount == null) continue;
-      const existing = byTitle.get(title);
-      if (!existing) {
-        byTitle.set(title, {
-          market_hash_name: title,
-          marketHashName: title,
-          source: 'dmarket',
-          currency: dmarketCurrency,
-          minPrice: amount,
-          maxPrice: amount,
-          suggestedPrice: amount,
-        });
-      } else {
-        existing.minPrice = Math.min(existing.minPrice, amount);
-        existing.maxPrice = Math.max(existing.maxPrice, amount);
-        existing.suggestedPrice = existing.minPrice;
-      }
+      const amount = priceUsd ?? suggestedUsd ?? null;
+      items.push({
+        market_hash_name: title,
+        marketHashName: title,
+        source: 'dmarket',
+        currency: dmarketCurrency,
+        minPrice: amount,
+        maxPrice: amount,
+        suggestedPrice: amount,
+      });
     }
-    const items = Array.from(byTitle.values());
     if (items.length > 0) {
       memoryCache.set(key, { items, fetchedAt: Date.now() });
     }
