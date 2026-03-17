@@ -170,12 +170,15 @@ export async function fetchDMarketMarketItems(
           privateKey,
         );
       all.push(...objects);
+      if (all.length >= limit) {
+        break;
+      }
       if (!nextCursor) break;
       cursor = nextCursor;
     }
 
     // 2) If we got very few items, API may not be returning cursor; try offset-based pages
-    if (all.length < 500) {
+    if (all.length < limit) {
       for (let offsetPage = 1; offsetPage < DMARKET_MAX_OFFSET_PAGES; offsetPage++) {
         const offset = offsetPage * DMARKET_PAGE_SIZE;
         const query = buildMarketItemsQueryWithOffset(
@@ -194,7 +197,7 @@ export async function fetchDMarketMarketItems(
           );
           if (objects.length === 0) break;
           all.push(...objects);
-          if (objects.length < DMARKET_PAGE_SIZE) break;
+          if (all.length >= limit || objects.length < DMARKET_PAGE_SIZE) break;
         } catch {
           break;
         }
