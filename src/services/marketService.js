@@ -120,14 +120,29 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     // Use market_hash_name as the real unique key to avoid collapsing distinct skins.
     const byMarketHashName = new Map();
     const priceKey = dmarketCurrency;
+    // Debug: check what fields contain the real uniqueness.
+    const uniqueTitleCount = new Set(
+      raw
+        .map((o) => o?.title ?? o?.extra?.name ?? null)
+        .filter((v) => typeof v === "string" && v.trim().length > 0),
+    ).size;
+    const uniqueItemIdCount = new Set(
+      raw
+        .map((o) => o?.itemId ?? o?.item_id ?? null)
+        .filter((v) => typeof v === "string" && v.trim().length > 0),
+    ).size;
+    console.warn(
+      "[dmarket-debug] appId=%s currency=%s uniqueTitle=%d uniqueItemId=%d",
+      appId,
+      dmarketCurrency,
+      uniqueTitleCount,
+      uniqueItemIdCount,
+    );
+
     for (const obj of raw) {
-      const marketHashName = String(
-        obj?.market_hash_name ??
-          obj?.marketHashName ??
-          obj?.title ??
-          obj?.extra?.name ??
-          '',
-      ).trim();
+      const title = obj?.title ?? obj?.extra?.name;
+      const marketHashName =
+        typeof title === "string" ? title.trim() : "";
       if (!marketHashName) continue;
 
       const priceVal = obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
