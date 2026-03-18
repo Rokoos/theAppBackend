@@ -1,5 +1,6 @@
 import express from 'express';
 import { getMarketPrices, getSkinportHistory } from '../services/marketService.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
@@ -14,6 +15,13 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function requireDb(req, res, next) {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: 'Database unavailable' });
+  }
+  next();
+}
+
 const SOURCE_VALUES = ['all', 'skinport', 'dmarket'];
 
 /**
@@ -22,7 +30,7 @@ const SOURCE_VALUES = ['all', 'skinport', 'dmarket'];
  * source: all | skinport | dmarket (default all). limit/offset for pagination. Response: { items, total }.
  * Cached 1 hour.
  */
-router.get('/prices', requireAuth, async (req, res, next) => {
+router.get('/prices', requireAuth, requireDb, async (req, res, next) => {
   try {
     const gameId = parseInt(req.query.gameId, 10);
     const currency = (req.query.currency || 'USD').toUpperCase();
@@ -61,7 +69,7 @@ router.get('/prices', requireAuth, async (req, res, next) => {
  * Returns SkinPort historical median prices for a single item.
  * If the game is not supported by SkinPort, returns { points: [], warning: 'unsupported-game' }.
  */
-router.get('/history', requireAuth, async (req, res, next) => {
+router.get('/history', requireAuth, requireDb, async (req, res, next) => {
   try {
     const gameId = parseInt(req.query.gameId, 10);
     const name = String(req.query.marketHashName || '').trim();

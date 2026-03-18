@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { DMarketCatalogItem } from '../models/DMarketCatalogItem.js';
 
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -75,31 +76,99 @@ async function fetchDMarketItems(appId, currency = 'USD') {
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
+
+  // If we already synced a catalog snapshot into MongoDB, serve from there.
+  try {
+    const cached = await DMarketCatalogItem.find({
+      gameId: appId,
+      currency: dmarketCurrency === "USD" ? "USD" : "DMC",
+    })
+      .sort({ marketHashName: 1 })
+      .lean();
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached.map((doc) => ({
+        market_hash_name: doc.marketHashName,
+        marketHashName: doc.marketHashName,
+        source: 'dmarket',
+        currency: doc.currency,
+        minPrice: doc.minPrice,
+        maxPrice: doc.maxPrice,
+        suggestedPrice: doc.suggestedPrice,
+      }));
+    }
+  } catch (err) {
+    // If Mongo lookup fails, fall back to live fetch.
+    console.warn('DMarket catalog Mongo lookup failed:', err.message);
+  }
+
   try {
     const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
-    // Fetch a larger slice so the user can browse more skins.
-    const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 400);
+    // Fetch a much larger set to cover all skins for that game.
+    // NOTE: this is only done on the first request when Mongo doesn't have a snapshot.
+    const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 5000);
+
+    const byTitle = new Map();
     const priceKey = dmarketCurrency;
-    const items = [];
     for (const obj of raw) {
       const title = obj?.title ?? obj?.extra?.name;
       if (!title || typeof title !== 'string') continue;
+
       const priceVal = obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
       const suggestedVal =
-        obj?.suggestedPrice?.[priceKey] ?? obj?.suggestedPrice?.USD ?? obj?.suggestedPrice?.Usd;
+        obj?.suggestedPrice?.[priceKey] ??
+        obj?.suggestedPrice?.USD ??
+        obj?.suggestedPrice?.Usd;
       const priceUsd = dmarketCentsToDollars(priceVal);
       const suggestedUsd = dmarketCentsToDollars(suggestedVal);
       const amount = priceUsd ?? suggestedUsd ?? null;
-      items.push({
-        market_hash_name: title,
-        marketHashName: title,
-        source: 'dmarket',
-        currency: dmarketCurrency,
-        minPrice: amount,
-        maxPrice: amount,
-        suggestedPrice: amount,
-      });
+
+      const existing = byTitle.get(title);
+      if (!existing) {
+        byTitle.set(title, {
+          marketHashName: title,
+          market_hash_name: title,
+          source: 'dmarket',
+          currency: dmarketCurrency,
+          minPrice: amount,
+          maxPrice: amount,
+          suggestedPrice: amount,
+        });
+      } else if (amount != null) {
+        // Keep min/max across duplicates; if minPrice is missing, initialize it.
+        existing.minPrice = existing.minPrice == null ? amount : Math.min(existing.minPrice, amount);
+        existing.maxPrice = existing.maxPrice == null ? amount : Math.max(existing.maxPrice, amount);
+        existing.suggestedPrice = existing.minPrice;
+      }
     }
+
+    const items = Array.from(byTitle.values());
+
+    // Persist snapshot into Mongo for subsequent fast reads.
+    if (items.length > 0) {
+      const docs = items.map((it) => ({
+        gameId: appId,
+        marketHashName: it.marketHashName,
+        currency: it.currency,
+        minPrice: it.minPrice ?? null,
+        maxPrice: it.maxPrice ?? null,
+        suggestedPrice: it.suggestedPrice ?? null,
+        fetchedAt: new Date(),
+      }));
+
+      try {
+        const ops = docs.map((d) => ({
+          updateOne: {
+            filter: { gameId: d.gameId, marketHashName: d.marketHashName },
+            update: { $set: d },
+            upsert: true,
+          },
+        }));
+        if (ops.length > 0) await DMarketCatalogItem.bulkWrite(ops, { ordered: false });
+      } catch (dbErr) {
+        console.warn('DMarket catalog bulkWrite failed:', dbErr.message);
+      }
+    }
+
     if (items.length > 0) {
       memoryCache.set(key, { items, fetchedAt: Date.now() });
     }
@@ -141,7 +210,9 @@ export async function getMarketPrices(gameId, options = {}) {
   // but give DMarket a bit more time since it can page through more data.
   const [items, dmarket] = await Promise.all([
     withTimeout(fetchSkinPortItems(gameId, currency), 2500),
-    withTimeout(fetchDMarketItems(gameId, currency), 6000),
+    // Allow longer only for the initial Mongo-less catalog fill.
+    // Subsequent requests should be served instantly from Mongo.
+    withTimeout(fetchDMarketItems(gameId, currency), 30000),
   ]);
   const result = [];
   for (const it of items) {
