@@ -8,6 +8,8 @@ const SKINPORT_BASE = 'https://api.skinport.com/v1/items';
 const SKINPORT_HISTORY_BASE = 'https://api.skinport.com/v1/sales/history';
 
 const memoryCache = new Map();
+const DMARKET_CATALOG_CACHE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const DMARKET_CATALOG_MIN_ITEMS = 200; // if we have fewer, refresh (avoid stuck underfilled snapshots)
 
 function cacheKey(source, gameId, currency = '') {
   return `${source}:${gameId}:${currency}`;
@@ -77,15 +79,18 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     return memoryCache.get(key).items;
   }
 
-  // If we already synced a catalog snapshot into MongoDB, serve from there.
+  // If we already synced a catalog snapshot into MongoDB, serve from there
+  // BUT refresh if it looks underfilled (e.g. previous fetch only captured 74).
   try {
+    const cutoff = new Date(Date.now() - DMARKET_CATALOG_CACHE_MS);
     const cached = await DMarketCatalogItem.find({
       gameId: appId,
       currency: dmarketCurrency === "USD" ? "USD" : "DMC",
+      fetchedAt: { $gte: cutoff },
     })
       .sort({ marketHashName: 1 })
       .lean();
-    if (Array.isArray(cached) && cached.length > 0) {
+    if (Array.isArray(cached) && cached.length >= DMARKET_CATALOG_MIN_ITEMS) {
       return cached.map((doc) => ({
         market_hash_name: doc.marketHashName,
         marketHashName: doc.marketHashName,
@@ -107,11 +112,18 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     // NOTE: this is only done on the first request when Mongo doesn't have a snapshot.
     const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 5000);
 
-    const byTitle = new Map();
+    // Use market_hash_name as the real unique key to avoid collapsing distinct skins.
+    const byMarketHashName = new Map();
     const priceKey = dmarketCurrency;
     for (const obj of raw) {
-      const title = obj?.title ?? obj?.extra?.name;
-      if (!title || typeof title !== 'string') continue;
+      const marketHashName = String(
+        obj?.market_hash_name ??
+          obj?.marketHashName ??
+          obj?.title ??
+          obj?.extra?.name ??
+          '',
+      ).trim();
+      if (!marketHashName) continue;
 
       const priceVal = obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
       const suggestedVal =
@@ -122,26 +134,21 @@ async function fetchDMarketItems(appId, currency = 'USD') {
       const suggestedUsd = dmarketCentsToDollars(suggestedVal);
       const amount = priceUsd ?? suggestedUsd ?? null;
 
-      const existing = byTitle.get(title);
+      const existing = byMarketHashName.get(marketHashName);
       if (!existing) {
-        byTitle.set(title, {
-          marketHashName: title,
-          market_hash_name: title,
+        byMarketHashName.set(marketHashName, {
+          marketHashName,
+          market_hash_name: marketHashName,
           source: 'dmarket',
           currency: dmarketCurrency,
           minPrice: amount,
           maxPrice: amount,
           suggestedPrice: amount,
         });
-      } else if (amount != null) {
-        // Keep min/max across duplicates; if minPrice is missing, initialize it.
-        existing.minPrice = existing.minPrice == null ? amount : Math.min(existing.minPrice, amount);
-        existing.maxPrice = existing.maxPrice == null ? amount : Math.max(existing.maxPrice, amount);
-        existing.suggestedPrice = existing.minPrice;
       }
     }
 
-    const items = Array.from(byTitle.values());
+    const items = Array.from(byMarketHashName.values());
 
     // Persist snapshot into Mongo for subsequent fast reads.
     if (items.length > 0) {
@@ -202,7 +209,7 @@ function withTimeout(promise, ms) {
  */
 export async function getMarketPrices(gameId, options = {}) {
   const { currency = 'USD', forceRefresh = false } = options;
-  const key = cacheKey('skinport', gameId, currency);
+  const key = cacheKey('market', gameId, currency);
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
     return memoryCache.get(key).items;
   }
