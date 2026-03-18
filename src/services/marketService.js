@@ -115,6 +115,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     // Fetch a much larger set to cover all skins for that game.
     // NOTE: this is only done on the first request when Mongo doesn't have a snapshot.
     const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 5000);
+    console.warn('[dmarket-debug] appId=%s currency=%s rawObjects=%d', appId, dmarketCurrency, Array.isArray(raw) ? raw.length : 0);
 
     // Use market_hash_name as the real unique key to avoid collapsing distinct skins.
     const byMarketHashName = new Map();
@@ -153,6 +154,7 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     }
 
     const items = Array.from(byMarketHashName.values());
+    console.warn('[dmarket-debug] appId=%s currency=%s uniqueMarketHashNames=%d', appId, dmarketCurrency, items.length);
 
     // Persist snapshot into Mongo for subsequent fast reads.
     if (items.length > 0) {

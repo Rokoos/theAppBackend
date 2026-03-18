@@ -77,6 +77,8 @@ function buildMarketItemsQuery(gameId, apiCurrency, cursor) {
   params.set("limit", String(DMARKET_PAGE_SIZE));
   params.set("orderBy", "title");
   params.set("orderDir", "asc");
+  // Ensure we include all listing offer types (helps return full catalog).
+  params.set("types", "dmarket,p2p");
   return params.toString();
 }
 
@@ -91,6 +93,7 @@ function buildMarketItemsQueryWithOffset(gameId, apiCurrency, offset) {
   params.set("offset", String(offset));
   params.set("orderBy", "title");
   params.set("orderDir", "asc");
+  params.set("types", "dmarket,p2p");
   return params.toString();
 }
 
@@ -197,7 +200,10 @@ export async function fetchDMarketMarketItems(
           );
           if (objects.length === 0) break;
           all.push(...objects);
-          if (all.length >= limit || objects.length < DMARKET_PAGE_SIZE) break;
+          // Don't stop just because the page returned fewer than DMARKET_PAGE_SIZE.
+          // DMarket can sometimes throttle/partial-return pages; we only stop on empty pages
+          // or when we reach the requested limit.
+          if (all.length >= limit) break;
         } catch {
           break;
         }
