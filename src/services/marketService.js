@@ -83,33 +83,6 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     }
   }
 
-  // If we already synced a catalog snapshot into MongoDB, serve from there
-  // BUT refresh if it looks underfilled (e.g. previous fetch only captured 74).
-  try {
-    const cutoff = new Date(Date.now() - DMARKET_CATALOG_CACHE_MS);
-    const cached = await DMarketCatalogItem.find({
-      gameId: appId,
-      currency: dmarketCurrency === "USD" ? "USD" : "DMC",
-      fetchedAt: { $gte: cutoff },
-    })
-      .sort({ marketHashName: 1 })
-      .lean();
-    if (Array.isArray(cached) && cached.length >= DMARKET_CATALOG_MIN_ITEMS) {
-      return cached.map((doc) => ({
-        market_hash_name: doc.marketHashName,
-        marketHashName: doc.marketHashName,
-        source: 'dmarket',
-        currency: doc.currency,
-        minPrice: doc.minPrice,
-        maxPrice: doc.maxPrice,
-        suggestedPrice: doc.suggestedPrice,
-      }));
-    }
-  } catch (err) {
-    // If Mongo lookup fails, fall back to live fetch.
-    console.warn('DMarket catalog Mongo lookup failed:', err.message);
-  }
-
   try {
     const { fetchDMarketMarketItems } = await import('./dmarketClient.js');
     // Fetch a much larger set to cover all skins for that game.
@@ -117,89 +90,40 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     const raw = await fetchDMarketMarketItems(appId, dmarketCurrency, 5000);
     console.warn('[dmarket-debug] appId=%s currency=%s rawObjects=%d', appId, dmarketCurrency, Array.isArray(raw) ? raw.length : 0);
 
-    // Use market_hash_name as the real unique key to avoid collapsing distinct skins.
-    const byMarketHashName = new Map();
     const priceKey = dmarketCurrency;
-    // Debug: check what fields contain the real uniqueness.
-    const uniqueTitleCount = new Set(
-      raw
-        .map((o) => o?.title ?? o?.extra?.name ?? null)
-        .filter((v) => typeof v === "string" && v.trim().length > 0),
-    ).size;
-    const uniqueItemIdCount = new Set(
-      raw
-        .map((o) => o?.itemId ?? o?.item_id ?? null)
-        .filter((v) => typeof v === "string" && v.trim().length > 0),
-    ).size;
-    console.warn(
-      "[dmarket-debug] appId=%s currency=%s uniqueTitle=%d uniqueItemId=%d",
-      appId,
-      dmarketCurrency,
-      uniqueTitleCount,
-      uniqueItemIdCount,
-    );
-
+    const items = [];
     for (const obj of raw) {
       const title = obj?.title ?? obj?.extra?.name;
-      const marketHashName =
-        typeof title === "string" ? title.trim() : "";
+      const marketHashName = typeof title === "string" ? title.trim() : "";
       if (!marketHashName) continue;
 
-      const priceVal = obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
+      const priceVal =
+        obj?.price?.[priceKey] ?? obj?.price?.USD ?? obj?.price?.Usd;
       const suggestedVal =
         obj?.suggestedPrice?.[priceKey] ??
         obj?.suggestedPrice?.USD ??
         obj?.suggestedPrice?.Usd;
+
       const priceUsd = dmarketCentsToDollars(priceVal);
       const suggestedUsd = dmarketCentsToDollars(suggestedVal);
       const amount = priceUsd ?? suggestedUsd ?? null;
 
-      const existing = byMarketHashName.get(marketHashName);
-      if (!existing) {
-        byMarketHashName.set(marketHashName, {
-          marketHashName,
-          market_hash_name: marketHashName,
-          source: 'dmarket',
-          currency: dmarketCurrency,
-          minPrice: amount,
-          maxPrice: amount,
-          suggestedPrice: amount,
-        });
-      }
+      // NOTE:
+      // DMarket appears to reuse the same title for many distinct itemId variants
+      // (wear/float variants). We keep every raw object so users see all variants.
+      items.push({
+        market_hash_name: marketHashName,
+        marketHashName,
+        source: "dmarket",
+        currency: dmarketCurrency,
+        minPrice: amount,
+        maxPrice: amount,
+        suggestedPrice: amount,
+        dmarketItemId: obj?.itemId ?? obj?.item_id ?? null,
+      });
     }
 
-    const items = Array.from(byMarketHashName.values());
-    console.warn('[dmarket-debug] appId=%s currency=%s uniqueMarketHashNames=%d', appId, dmarketCurrency, items.length);
-
-    // Persist snapshot into Mongo for subsequent fast reads.
-    if (items.length > 0) {
-      const docs = items.map((it) => ({
-        gameId: appId,
-        marketHashName: it.marketHashName,
-        currency: it.currency,
-        minPrice: it.minPrice ?? null,
-        maxPrice: it.maxPrice ?? null,
-        suggestedPrice: it.suggestedPrice ?? null,
-        fetchedAt: new Date(),
-      }));
-
-      try {
-        const ops = docs.map((d) => ({
-          updateOne: {
-            filter: { gameId: d.gameId, marketHashName: d.marketHashName },
-            update: { $set: d },
-            upsert: true,
-          },
-        }));
-        if (ops.length > 0) await DMarketCatalogItem.bulkWrite(ops, { ordered: false });
-      } catch (dbErr) {
-        console.warn('DMarket catalog bulkWrite failed:', dbErr.message);
-      }
-    }
-
-    if (items.length > 0) {
-      memoryCache.set(key, { items, fetchedAt: Date.now() });
-    }
+    if (items.length > 0) memoryCache.set(key, { items, fetchedAt: Date.now() });
     return items;
   } catch (err) {
     console.warn('DMarket fetch failed for appId', appId, err.message);
