@@ -76,7 +76,11 @@ async function fetchDMarketItems(appId, currency = 'USD') {
     (currency && String(currency).toUpperCase() === 'DMC') ? 'DMC' : 'USD';
   const key = cacheKey('dmarket', appId, dmarketCurrency);
   if (memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
-    return memoryCache.get(key).items;
+    const cachedItems = memoryCache.get(key).items;
+    // If we previously cached an underfilled snapshot, refresh so we don't stay stuck.
+    if (Array.isArray(cachedItems) && cachedItems.length >= DMARKET_CATALOG_MIN_ITEMS) {
+      return cachedItems;
+    }
   }
 
   // If we already synced a catalog snapshot into MongoDB, serve from there
