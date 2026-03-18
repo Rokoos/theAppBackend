@@ -156,7 +156,14 @@ export async function getMarketPrices(gameId, options = {}) {
   const { currency = 'USD', forceRefresh = false } = options;
   const key = cacheKey('market', gameId, currency);
   if (!forceRefresh && memoryCache.has(key) && isCacheValid(memoryCache.get(key))) {
-    return memoryCache.get(key).items;
+    const cachedItems = memoryCache.get(key).items;
+    // If we previously served a too-small DMarket snapshot, refresh.
+    const dmarketCount = Array.isArray(cachedItems)
+      ? cachedItems.filter((i) => i?.source === 'dmarket').length
+      : 0;
+    if (dmarketCount >= DMARKET_CATALOG_MIN_ITEMS) {
+      return cachedItems;
+    }
   }
   // Fetch SkinPort and DMarket in parallel. We cap SkinPort more aggressively,
   // but give DMarket a bit more time since it can page through more data.
