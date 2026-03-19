@@ -23,7 +23,6 @@ export async function syncDMarket(params = {}) {
   console.log("Targeting Collection:", Skin.collection.name);
   const appId = params.appId;
   const currency = params.currency || "USD";
-  const maxObjects = params.maxObjects ?? 20000; // safety cap
 
   const targets = typeof appId === "number" ? [appId] : ALLOWED_APP_IDS;
   for (const gid of targets) {
@@ -46,10 +45,6 @@ export async function syncDMarket(params = {}) {
         fetched += 1;
         if (fetched % 100 === 0) {
           console.log(`[syncDMarket] gid=${gid} fetched=${fetched}`);
-        }
-        if (fetched >= maxObjects) {
-          console.log(`[syncDMarket] gid=${gid} reached maxObjects=${maxObjects}`);
-          break;
         }
 
         const title = obj?.title ?? obj?.extra?.name;
@@ -81,7 +76,6 @@ export async function syncDMarket(params = {}) {
         );
       }
 
-      if (fetched >= maxObjects) break;
       if (!nextCursor) {
         console.log(`[syncDMarket] done gid=${gid} fetched=${fetched} (cursor ended)`);
         break;
