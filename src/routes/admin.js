@@ -1,6 +1,6 @@
 import express from "express";
 import mongoose from "mongoose";
-import { syncDMarket } from "../services/dmarketSync.js";
+import { syncDMarket, syncSkinport } from "../services/dmarketSync.js";
 
 const router = express.Router();
 
@@ -23,16 +23,32 @@ function requireDb(req, res, next) {
 router.get("/force-sync", requireAuth, requireDb, async (req, res) => {
   const appId = req.query.appId ? parseInt(String(req.query.appId), 10) : undefined;
   const currency = req.query.currency ? String(req.query.currency) : "USD";
+  const source = req.query.source ? String(req.query.source).toLowerCase() : "all";
 
   // Kick off sync without blocking the HTTP request.
-  void syncDMarket({
+  const syncParams = {
     appId: typeof appId === "number" && Number.isFinite(appId) ? appId : undefined,
     currency,
-  }).catch((err) => {
-    console.error("[admin] force-sync failed:", err);
-  });
+  };
 
-  res.json({ ok: true, started: true, appId: appId ?? null, currency });
+  if (source === "dmarket") {
+    void syncDMarket(syncParams).catch((err) => {
+      console.error("[admin] force-sync dmarket failed:", err);
+    });
+  } else if (source === "skinport") {
+    void syncSkinport(syncParams).catch((err) => {
+      console.error("[admin] force-sync skinport failed:", err);
+    });
+  } else {
+    void (async () => {
+      await syncDMarket(syncParams);
+      await syncSkinport(syncParams);
+    })().catch((err) => {
+      console.error("[admin] force-sync all failed:", err);
+    });
+  }
+
+  res.json({ ok: true, started: true, appId: appId ?? null, currency, source });
 });
 
 export default router;

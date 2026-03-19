@@ -1,7 +1,9 @@
 import { Skin } from "../models/Skin.js";
 import { fetchDMarketMarketItemsCursorPage } from "./dmarketClient.js";
+import axios from "axios";
 
 const ALLOWED_APP_IDS = [730, 252490, 570, 440];
+const SKINPORT_BASE = "https://api.skinport.com/v1/items";
 
 function centsToDollars(centsStr) {
   if (centsStr == null) return null;
@@ -18,6 +20,7 @@ function centsToDollars(centsStr) {
  * @param {{ appId?: number, currency?: string, maxObjects?: number }} params
  */
 export async function syncDMarket(params = {}) {
+  console.log("Targeting Collection:", Skin.collection.name);
   const appId = params.appId;
   const currency = params.currency || "USD";
   const maxObjects = params.maxObjects ?? 20000; // safety cap
@@ -84,6 +87,65 @@ export async function syncDMarket(params = {}) {
         break;
       }
       cursor = nextCursor;
+    }
+  }
+}
+
+/**
+ * Sync SkinPort catalog into Mongo (Skin collection).
+ * Stores the lowest available SkinPort price per marketHashName/game.
+ */
+export async function syncSkinport(params = {}) {
+  console.log("Targeting Collection:", Skin.collection.name);
+  const appId = params.appId;
+  const currency = (params.currency || "USD").toUpperCase();
+  const targets = typeof appId === "number" ? [appId] : ALLOWED_APP_IDS;
+
+  for (const gid of targets) {
+    if (!ALLOWED_APP_IDS.includes(gid)) continue;
+    console.log(`[syncSkinport] start gid=${gid} currency=${currency}`);
+    let fetched = 0;
+    try {
+      const { data } = await axios.get(SKINPORT_BASE, {
+        params: { app_id: gid, currency, tradable: 1 },
+        timeout: 20000,
+        validateStatus: (s) => s === 200,
+      });
+      const objects = Array.isArray(data) ? data : [];
+      for (const obj of objects) {
+        fetched += 1;
+        if (fetched % 100 === 0) {
+          console.log(`[syncSkinport] gid=${gid} fetched=${fetched}`);
+        }
+
+        const mhn = typeof obj?.market_hash_name === "string" ? obj.market_hash_name.trim() : "";
+        if (!mhn) continue;
+        const p =
+          typeof obj?.min_price === "number" ? obj.min_price :
+          typeof obj?.suggested_price === "number" ? obj.suggested_price : null;
+        if (p == null) continue;
+        const slug = typeof obj?.slug === "string" ? obj.slug : null;
+
+        await Skin.updateOne(
+          {
+            mhn,
+            gid,
+            $or: [{ "sp.price": null }, { "sp.price": { $gt: p } }],
+          },
+          {
+            $set: {
+              "sp.price": p,
+              "sp.lastUpdated": new Date(),
+              "sp.slug": slug,
+            },
+            $setOnInsert: { gid },
+          },
+          { upsert: true },
+        );
+      }
+      console.log(`[syncSkinport] done gid=${gid} fetched=${fetched}`);
+    } catch (err) {
+      console.error(`[syncSkinport] failed gid=${gid}:`, err?.message || err);
     }
   }
 }

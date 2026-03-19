@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { DMarketCatalogItem } from '../models/DMarketCatalogItem.js';
 
 const CACHE_MS = 60 * 60 * 1000; // 1 hour
 
@@ -8,7 +7,6 @@ const SKINPORT_BASE = 'https://api.skinport.com/v1/items';
 const SKINPORT_HISTORY_BASE = 'https://api.skinport.com/v1/sales/history';
 
 const memoryCache = new Map();
-const DMARKET_CATALOG_CACHE_MS = 6 * 60 * 60 * 1000; // 6 hours
 const DMARKET_CATALOG_MIN_ITEMS = 200; // if we have fewer, refresh (avoid stuck underfilled snapshots)
 
 function cacheKey(source, gameId, currency = '') {
