@@ -18,6 +18,7 @@ import cryptoRouter from "./crypto/routes.js";
 import alertsRouter from "./routes/alerts.js";
 import marketRouter from "./routes/market.js";
 import imagesRouter from "./routes/images.js";
+import adminRouter from "./routes/admin.js";
 import { connectDB } from "./db/index.js";
 
 // Resolve directory for explicit .env loading so we can support
@@ -129,6 +130,7 @@ app.use(
 app.use("/api/alerts", apiReadRateLimiter, alertsRouter);
 app.use("/api/market", apiReadRateLimiter, marketRouter);
 app.use("/api/images", imagesRouter);
+app.use("/api/admin", apiReadRateLimiter, adminRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

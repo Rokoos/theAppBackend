@@ -125,6 +125,39 @@ async function fetchDMarketMarketItemsPage(
 }
 
 /**
+ * Fetch a single cursor-based page from DMarket /exchange/v1/market/items.
+ * Exposed for the admin sync job.
+ */
+export async function fetchDMarketMarketItemsCursorPage(
+  appId,
+  currency = "USD",
+  cursor = null,
+) {
+  const publicKey =
+    process.env.PUBLIC_API_KEY ?? process.env.DM_PUBLIC_API_KEY;
+  const privateKey =
+    process.env.PRIVATE_API_KEY ?? process.env.DM_PRIVATE_API_KEY;
+  if (!publicKey || !privateKey) {
+    return { objects: [], cursor: null };
+  }
+
+  const gameId = APP_ID_TO_GAME_ID[appId];
+  if (!gameId) {
+    return { objects: [], cursor: null };
+  }
+
+  const apiCurrency =
+    (currency && String(currency).toUpperCase() === "DMC") ? "DMC" : "USD";
+
+  const path = "/exchange/v1/market/items";
+  const query = buildMarketItemsQuery(gameId, apiCurrency, cursor);
+  const pathWithQuery = `${path}?${query}`;
+  const url = `${DMARKET_BASE}${pathWithQuery}`;
+
+  return fetchDMarketMarketItemsPage(pathWithQuery, url, publicKey, privateKey);
+}
+
+/**
  * Fetch market items from DMarket for a game.
  * Uses cursor pagination first; if the API returns no cursor or stops early,
  * falls back to offset pagination to fetch more pages (up to thousands of items).
