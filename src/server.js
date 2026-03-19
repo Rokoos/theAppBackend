@@ -20,6 +20,7 @@ import marketRouter from "./routes/market.js";
 import imagesRouter from "./routes/images.js";
 import adminRouter from "./routes/admin.js";
 import { connectDB } from "./db/index.js";
+import { syncDMarket, syncSkinport } from "./services/dmarketSync.js";
 
 // Resolve directory for explicit .env loading so we can support
 // a single .env at the project root as well as backend/.env.
@@ -62,6 +63,20 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+app.use(express.json());
+
+// Isolated startup sync: run before passport/session middleware init.
+void (async () => {
+  try {
+    process.stdout.write("[SYNC-DEBUG] Starting Sync...\n");
+    await connectDB();
+    await syncDMarket({ currency: "USD" });
+    await syncSkinport({ currency: "USD" });
+    process.stdout.write("[SYNC-DEBUG] Initial Sync Finished.\n");
+  } catch (err) {
+    process.stdout.write(`[SYNC-DEBUG] Initial Sync Failed: ${err?.message || err}\n`);
+  }
+})();
 
 const sessionCookieName =
   NODE_ENV === "development" ? "steamapp.sid" : "__Host-steamapp.sid";
@@ -83,17 +98,10 @@ app.use(
   }),
 );
 
-// Ensure req.session exists and has regenerate/save so passport.session() never throws (e.g. on Railway).
+// Dummy fix for passport SessionManager compatibility.
 app.use((req, res, next) => {
-  if (!req.session) {
-    req.session = {};
-  }
-  if (typeof req.session.regenerate !== "function") {
-    req.session.regenerate = (cb) => (cb ? cb() : undefined);
-  }
-  if (typeof req.session.save !== "function") {
-    req.session.save = (cb) => (cb ? cb() : undefined);
-  }
+  if (req.session && !req.session.regenerate) req.session.regenerate = (cb) => cb();
+  if (req.session && !req.session.save) req.session.save = (cb) => cb();
   next();
 });
 
@@ -106,7 +114,6 @@ app.use(
 app.use(cspMiddleware);
 
 app.use(compression());
-app.use(express.json());
 app.use(morgan(NODE_ENV === "development" ? "dev" : "combined"));
 
 configurePassport();

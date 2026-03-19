@@ -20,7 +20,7 @@ function centsToDollars(centsStr) {
  * @param {{ appId?: number, currency?: string, maxObjects?: number }} params
  */
 export async function syncDMarket(params = {}) {
-  console.log("Targeting Collection:", Skin.collection.name);
+  process.stdout.write(`[SYNC-DEBUG] Targeting Collection: ${Skin.collection.name}\n`);
   const appId = params.appId;
   const currency = params.currency || "USD";
 
@@ -31,13 +31,13 @@ export async function syncDMarket(params = {}) {
     let cursor = null;
     let fetched = 0;
 
-    console.log(`[syncDMarket] start gid=${gid} currency=${currency}`);
+    process.stdout.write(`[SYNC-DEBUG] syncDMarket start gid=${gid} currency=${currency}\n`);
     while (true) {
       const { objects, cursor: nextCursor } =
         await fetchDMarketMarketItemsCursorPage(gid, currency, cursor);
 
       if (!Array.isArray(objects) || objects.length === 0) {
-        console.log(`[syncDMarket] done gid=${gid} fetched=${fetched} (no more objects)`);
+        process.stdout.write(`[SYNC-DEBUG] syncDMarket done gid=${gid} fetched=${fetched} (no more objects)\n`);
         break;
       }
 
@@ -45,7 +45,7 @@ export async function syncDMarket(params = {}) {
       for (const obj of objects) {
         fetched += 1;
         if (fetched % 100 === 0) {
-          console.log(`[syncDMarket] gid=${gid} fetched=${fetched}`);
+          process.stdout.write(`[SYNC-DEBUG] syncDMarket gid=${gid} fetched=${fetched}\n`);
         }
 
         const title = obj?.title ?? obj?.extra?.name;
@@ -81,8 +81,8 @@ export async function syncDMarket(params = {}) {
       if (bulkOps.length > 0) {
         try {
           const result = await Skin.bulkWrite(bulkOps, { ordered: false });
-          console.log(
-            `[syncDMarket] gid=${gid} bulkWrite upserted=${result.upsertedCount ?? 0} modified=${result.modifiedCount ?? 0} matched=${result.matchedCount ?? 0}`,
+          process.stdout.write(
+            `[SYNC-DEBUG] syncDMarket gid=${gid} bulkWrite upserted=${result.upsertedCount ?? 0} modified=${result.modifiedCount ?? 0} matched=${result.matchedCount ?? 0}\n`,
           );
         } catch (err) {
           // Surface first write/validation error so schema/data mismatch is visible.
@@ -91,20 +91,19 @@ export async function syncDMarket(params = {}) {
             err?.writeErrors?.[0]?.message ||
             err?.errors?.[0]?.message ||
             err?.message;
-          console.error(
-            `[syncDMarket] gid=${gid} bulkWrite failed. firstError=${firstWriteErr}`,
+          process.stdout.write(
+            `[SYNC-DEBUG] syncDMarket gid=${gid} bulkWrite failed. firstError=${firstWriteErr}\n`,
           );
           if (err?.writeErrors?.[0]) {
-            console.error(
-              "[syncDMarket] firstWriteErrorFull:",
-              JSON.stringify(err.writeErrors[0], null, 2),
+            process.stdout.write(
+              `[SYNC-DEBUG] syncDMarket firstWriteErrorFull=${JSON.stringify(err.writeErrors[0])}\n`,
             );
           }
         }
       }
 
       if (!nextCursor) {
-        console.log(`[syncDMarket] done gid=${gid} fetched=${fetched} (cursor ended)`);
+        process.stdout.write(`[SYNC-DEBUG] syncDMarket done gid=${gid} fetched=${fetched} (cursor ended)\n`);
         break;
       }
       cursor = nextCursor;
@@ -117,14 +116,14 @@ export async function syncDMarket(params = {}) {
  * Stores the lowest available SkinPort price per marketHashName/game.
  */
 export async function syncSkinport(params = {}) {
-  console.log("Targeting Collection:", Skin.collection.name);
+  process.stdout.write(`[SYNC-DEBUG] Targeting Collection: ${Skin.collection.name}\n`);
   const appId = params.appId;
   const currency = (params.currency || "USD").toUpperCase();
   const targets = typeof appId === "number" ? [appId] : ALLOWED_APP_IDS;
 
   for (const gid of targets) {
     if (!ALLOWED_APP_IDS.includes(gid)) continue;
-    console.log(`[syncSkinport] start gid=${gid} currency=${currency}`);
+    process.stdout.write(`[SYNC-DEBUG] syncSkinport start gid=${gid} currency=${currency}\n`);
     let fetched = 0;
     try {
       const { data } = await axios.get(SKINPORT_BASE, {
@@ -136,7 +135,7 @@ export async function syncSkinport(params = {}) {
       for (const obj of objects) {
         fetched += 1;
         if (fetched % 100 === 0) {
-          console.log(`[syncSkinport] gid=${gid} fetched=${fetched}`);
+          process.stdout.write(`[SYNC-DEBUG] syncSkinport gid=${gid} fetched=${fetched}\n`);
         }
 
         const mhn = typeof obj?.market_hash_name === "string" ? obj.market_hash_name.trim() : "";
@@ -164,9 +163,9 @@ export async function syncSkinport(params = {}) {
           { upsert: true },
         );
       }
-      console.log(`[syncSkinport] done gid=${gid} fetched=${fetched}`);
+      process.stdout.write(`[SYNC-DEBUG] syncSkinport done gid=${gid} fetched=${fetched}\n`);
     } catch (err) {
-      console.error(`[syncSkinport] failed gid=${gid}:`, err?.message || err);
+      process.stdout.write(`[SYNC-DEBUG] syncSkinport failed gid=${gid}: ${err?.message || err}\n`);
     }
   }
 }
