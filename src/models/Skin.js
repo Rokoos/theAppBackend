@@ -6,33 +6,23 @@ import mongoose from "mongoose";
 // - gid: gameId (Steam appid)
 // - sp: SkinPort data snapshot (lowest price)
 // - dm: DMarket data snapshot (lowest price)
-const skinSchema = new mongoose.Schema(
+
+const SkinSchema = new mongoose.Schema(
   {
-    // Unique market identifier (across all supported games in your app).
-    mhn: { type: String, required: true, unique: true },
-
-    // Game identifier (indexed for fast lookup/filtering).
-    gid: { type: Number, required: true, index: true },
-
-    // SkinPort lowest price snapshot.
+    mhn: { type: String, required: true, unique: true }, // Market Hash Name
+    gid: { type: String, required: true }, // Game ID (e.g., 730)
+    img: String, // Image URL
     sp: {
-      price: { type: Number, default: null },
-      lastUpdated: { type: Date, default: null },
-      slug: { type: String, default: null }, // url part
+      // Skinport Data
+      p: Number, // Price
+      u: Date, // Updated At
     },
-
-    // DMarket lowest price snapshot.
     dm: {
-      price: { type: Number, default: null },
-      lastUpdated: { type: Date, default: null },
-      slug: { type: String, default: null }, // url part
+      // DMarket Data
+      p: Number, // Price
+      u: Date, // Updated At
     },
   },
-  {
-    versionKey: false,
-    timestamps: false,
-  },
-);
-
-export const Skin = mongoose.model("Skin", skinSchema);
-
+  { timestamps: false },
+); // Disable timestamps to save even more bytes
+export const Skin = mongoose.model("Skin", SkinSchema);
