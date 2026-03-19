@@ -41,6 +41,7 @@ export async function syncDMarket(params = {}) {
         break;
       }
 
+      const bulkOps = [];
       for (const obj of objects) {
         fetched += 1;
         if (fetched % 100 === 0) {
@@ -57,23 +58,49 @@ export async function syncDMarket(params = {}) {
 
         const slug = typeof obj?.slug === "string" ? obj.slug : null;
 
-        // Update only if the existing price is null or higher.
-        await Skin.updateOne(
-          {
-            mhn,
-            gid,
-            $or: [{ "dm.price": null }, { "dm.price": { $gt: price } }],
-          },
-          {
-            $set: {
-              "dm.price": price,
-              "dm.lastUpdated": new Date(),
-              "dm.slug": slug,
+        bulkOps.push({
+          updateOne: {
+            filter: {
+              mhn,
+              gid,
+              $or: [{ "dm.price": null }, { "dm.price": { $gt: price } }],
             },
-            $setOnInsert: { gid: gid },
+            update: {
+              $set: {
+                "dm.price": price,
+                "dm.lastUpdated": new Date(),
+                "dm.slug": slug,
+              },
+              $setOnInsert: { gid },
+            },
+            upsert: true,
           },
-          { upsert: true },
-        );
+        });
+      }
+
+      if (bulkOps.length > 0) {
+        try {
+          const result = await Skin.bulkWrite(bulkOps, { ordered: false });
+          console.log(
+            `[syncDMarket] gid=${gid} bulkWrite upserted=${result.upsertedCount ?? 0} modified=${result.modifiedCount ?? 0} matched=${result.matchedCount ?? 0}`,
+          );
+        } catch (err) {
+          // Surface first write/validation error so schema/data mismatch is visible.
+          const firstWriteErr =
+            err?.writeErrors?.[0]?.errmsg ||
+            err?.writeErrors?.[0]?.message ||
+            err?.errors?.[0]?.message ||
+            err?.message;
+          console.error(
+            `[syncDMarket] gid=${gid} bulkWrite failed. firstError=${firstWriteErr}`,
+          );
+          if (err?.writeErrors?.[0]) {
+            console.error(
+              "[syncDMarket] firstWriteErrorFull:",
+              JSON.stringify(err.writeErrors[0], null, 2),
+            );
+          }
+        }
       }
 
       if (!nextCursor) {
