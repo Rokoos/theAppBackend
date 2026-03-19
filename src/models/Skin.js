@@ -34,9 +34,5 @@ const skinSchema = new mongoose.Schema(
   },
 );
 
-// Explicit indexes per request:
-skinSchema.index({ mhn: 1 }, { unique: true });
-skinSchema.index({ gid: 1 });
-
 export const Skin = mongoose.model("Skin", skinSchema);
 
